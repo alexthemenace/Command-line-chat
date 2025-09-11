@@ -28,6 +28,8 @@ A powerful command-line interface for Instagram Direct Messages. Send and receiv
 3. **Run setup wizard:**
    ```bash
    python instagram_chat.py setup
+   # OR use the convenient entry point:
+   python run.py setup
    ```
 
 ## Quick Start
@@ -75,6 +77,8 @@ python instagram_chat.py chat 1
 ```bash
 # Run the setup wizard
 python instagram_chat.py setup
+# OR
+python run.py setup
 
 # Or login manually
 python instagram_chat.py login -u your_username
