@@ -6,6 +6,8 @@ A simple CLI tool to send and receive Instagram direct messages.
 
 import sys
 import click
+import threading
+import time
 from colorama import Fore, Style, init
 from auth import InstagramAuth
 from chat import InstagramChat
@@ -96,24 +98,53 @@ def chat_cmd(conversation_id, limit):
         limit
     )
     
+    # Start background poller thread to print new messages
+    stop_event = threading.Event()
+
+    def poll_thread_messages(thread_id, chat_obj, stop_evt, poll_interval=Config.POLLING_INTERVAL):
+        last_seen = None
+        while not stop_evt.is_set():
+            try:
+                messages = chat_obj.fetch_messages(thread_id, limit=20)
+                # messages returned newest-first; reverse to process oldest->newest
+                new = []
+                for m in reversed(messages):
+                    if last_seen is None or m['id'] > last_seen:
+                        new.append(m)
+                if new:
+                    for m in new:
+                        ts = m.get('timestamp') or ''
+                        user_id = m.get('user_id')
+                        # Prefer friendly name: 'You' or conversation display name
+                        sender_label = 'You' if user_id == chat_obj.current_user.pk else selected_conv.get('display_name', 'User')
+                        click.echo(f"{Fore.YELLOW}[{ts}] {sender_label}: {m.get('text')}{Style.RESET_ALL}")
+                    last_seen = new[-1]['id']
+            except Exception as e:
+                click.echo(f"{Fore.RED}Polling error: {e}{Style.RESET_ALL}")
+            time.sleep(poll_interval)
+
+    poller = threading.Thread(target=poll_thread_messages, args=(selected_conv['thread_id'], chat, stop_event))
+    poller.daemon = True
+    poller.start()
+
     # Interactive mode
     click.echo(f"\n{Fore.YELLOW}💬 Type your message and press Enter (or 'quit' to exit):{Style.RESET_ALL}")
-    
-    while True:
-        try:
-            message = click.prompt('>', prompt_suffix=' ', show_default=False)
-            
-            if message.lower() in ['quit', 'exit', 'q']:
+    try:
+        while True:
+            try:
+                message = click.prompt('>', prompt_suffix=' ', show_default=False)
+                if message.lower() in ['quit', 'exit', 'q']:
+                    break
+                if message.strip():
+                    if chat.send_message(selected_conv['thread_id'], message):
+                        click.echo(f"{Fore.GREEN}[You]: {message}{Style.RESET_ALL}")
+            except (KeyboardInterrupt, EOFError):
                 break
-            
-            if message.strip():
-                if chat.send_message(selected_conv['thread_id'], message):
-                    click.echo(f"{Fore.GREEN}[You]: {message}{Style.RESET_ALL}")
-                    
-        except (KeyboardInterrupt, EOFError):
-            break
-    
-    click.echo(f"\n{Fore.CYAN}👋 Goodbye!{Style.RESET_ALL}")
+    finally:
+        # Cleanly stop the poller thread
+        stop_event.set()
+        poller.join(timeout=1)
+        click.echo(f"\n{Fore.CYAN}👋 Goodbye!{Style.RESET_ALL}")
 
 @cli.command()
 @click.argument('username')

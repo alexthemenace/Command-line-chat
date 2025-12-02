@@ -88,6 +88,53 @@ class InstagramChat:
         except Exception as e:
             click.echo(f"❌ Failed to get messages: {e}")
             return []
+
+    def fetch_messages(self, thread_id, limit=20):
+        """Fetch messages and return a stable, simple list of dicts.
+
+        The returned list items have keys: 'id', 'timestamp', 'user_id', 'text'.
+        This normalizes the instagrapi message objects so polling logic can
+        dedupe and print messages without depending on the library types.
+        """
+        try:
+            messages = self.client.direct_messages(thread_id, amount=limit)
+            results = []
+            for m in messages:
+                # Try to derive a stable id; fall back to timestamp+user
+                msg_id = getattr(m, 'id', None) or getattr(m, 'pk', None)
+                if not msg_id:
+                    try:
+                        msg_id = f"{m.timestamp.timestamp()}_{m.user_id}"
+                    except Exception:
+                        msg_id = str(id(m))
+
+                # Timestamp to ISO string if available
+                ts = None
+                try:
+                    ts = m.timestamp.isoformat() if getattr(m, 'timestamp', None) else None
+                except Exception:
+                    ts = None
+
+                text = ''
+                try:
+                    if getattr(m, 'text', None):
+                        text = m.text
+                except Exception:
+                    text = ''
+
+                user_id = getattr(m, 'user_id', None)
+
+                results.append({
+                    'id': str(msg_id),
+                    'timestamp': ts,
+                    'user_id': user_id,
+                    'text': text,
+                })
+
+            return results
+        except Exception as e:
+            click.echo(f"❌ Failed to fetch messages: {e}")
+            return []
     
     def display_messages(self, thread_id, display_name, limit=None):
         """Display messages from a conversation."""
